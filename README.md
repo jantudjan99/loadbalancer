@@ -1,4 +1,5 @@
 **Sažetak**
+
 Ovaj load balancer razvijen je u Go programskom jeziku, svi servisi su zajedno kontejnezirani (pomoću Dockera) pa je samo uključivanje svih servisa lakše. Sastoji se od 3 vrlo jednostavna servera. Njegova svrha je da sva 3 servera vrti pri ulasku korisnika na jednoj lokaciji. Korištena je metoda chooseServerWeightedRoundRobin za težinsko raspoređivanje, pri čemu serveri imaju definirane težine. Server 3 ima najveću težinu, server 2 ima težinu koja je dvostruko manja od servera 3, dok server 1 ima težinu koja je trostruko manja od servera 3. To rezultira time da je vjerojatnost preusmjeravanja na server 1 tri puta manja od vjerojatnosti preusmjeravanja na server 3. Postoji HealthCheck funkcija koja provjerava stanje svih servera svakih 5 sekundi, ako su serveri aktivni javlja da jesu, ako serveri nisu aktivni javlja da nisu. 
 Server ima nekoliko ruta a neke od njih su:
 * Dodavanje novih servera u load balancer putem metode AddServer i uklanjanje servera putem metode RemoveServer
