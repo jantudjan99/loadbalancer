@@ -1,0 +1,56 @@
+version: '3'
+services:
+  load-balancer:
+    build: .
+    ports:
+      - 192.168.1.8:8000:8000
+    networks:
+      - lb-net
+    depends_on:
+      - server1
+      - server2
+      - server3
+    environment:
+      - ZIPKIN_SERVER_URL=http://192.168.1.8:9411/api/v2/spans
+
+  server1:
+    build: ./server1
+    ports:
+      - 192.168.1.8:8001:8001
+    networks:
+      - lb-net
+
+  server2:
+    build: ./server2
+    ports:
+      - 192.168.1.8:8002:8002
+    networks:
+      - lb-net
+
+  server3:
+    build: ./server3
+    ports:
+      - 192.168.1.8:8003:8003
+    networks:
+      - lb-net
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - 192.168.1.8:9090:9090
+    networks:
+      - lb-net
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+
+  zipkin:
+    image: openzipkin/zipkin
+    ports:
+      - 192.168.1.8:9411:9411
+    networks:
+      - lb-net
+  
+networks:
+  lb-net:
