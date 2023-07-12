@@ -9,4 +9,3 @@ Server ima nekoliko ruta a neke od njih su:
 * Prikazivanje nasumičnog servera (potpuno nasumičnog, jednaka je mogućnost za dobivanje svakog servera)
 
 Trebao sam load balancer spojiti posebno sa Prometheusom i posebno sa Zipkinom da bi mogli biti međusobno povezani. Prometheus ima posebno sučelje pomoću kojeg se mogu pratiti raznovrsne prije navedene metrike, tj. njihova statistika, podaci o pojedinom serveru ili podaci o svim serverima. Također i Zipkin ima posebno sučelje koje služi za praćenje distribuiranih sustava te koristi koncepte Tracinga kako bi se pratila putanja i vrijeme izvođenja zahtjeva kroz više servisa. Na primjer ja imam praćenje izvođenja vremena za svih 3 servisa na jednom mjestu što je moguće vizualno vidjeti.
-Metode za dodavanje, uklanjanje, provjeru stanja i odabir servera u LoadBalancer.
