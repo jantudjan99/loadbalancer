@@ -1,4 +1,5 @@
 build:
+	go mod tidy
 	go build -o load-balancer
 
 run:
@@ -12,3 +13,6 @@ docker-up:
 
 docker-down:
 	docker-compose down
+
+
+

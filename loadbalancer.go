@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	//"github.com/gorilla/mux"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,7 +21,6 @@ import (
 	"github.com/openzipkin/zipkin-go/model"
 	reporterhttp "github.com/openzipkin/zipkin-go/reporter/http"
 
-	//"github.com/gorilla/mux"
 	zipkinhttp "github.com/openzipkin/zipkin-go/middleware/http"
 ) //
 
