@@ -1,0 +1,11 @@
+{
+    "request": {
+      "method": "GET",
+      "url": "/"
+    },
+    "response": {
+      "status": 200,
+      "body": "This is mock server 3"
+    }
+  }
+  

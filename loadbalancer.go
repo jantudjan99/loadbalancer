@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	//"github.com/gorilla/mux"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -34,11 +36,20 @@ type Server struct {
 	MaxConns int
 }
 
+type MockServer struct {
+	URL      string
+	Name     string
+	Weight   int
+	Current  int
+	MaxConns int
+}
+
 // LoadBalancer je struktura koja predstavlja load balancer
 type LoadBalancer struct {
 	servers       []*Server
 	mutex         sync.Mutex
 	activeServers map[string]bool
+	mockServers   []*MockServer
 }
 
 type AdditionalInfo struct {
@@ -355,17 +366,22 @@ func (lb *LoadBalancer) handleRequest(w http.ResponseWriter, r *http.Request, tr
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
 	// Dohvat memorijske potrošnje iz servera
 	memUsage, err := getMemoryUsageFromServer(selected.URL)
-	if err != nil {
-		log.Printf("Failed to get memory usage from server: %s\n", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	if err != nil && !strings.Contains(strings.ToLower(selected.Name), "mock") {
+		if err.Error() != "mock server" {
+			log.Printf("Failed to get memory usage from server: %s\n", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Prikaz potrošenosti memorije za server u metrikama/Prometheusu
+		if !strings.Contains(strings.ToLower(selected.Name), "mock") {
+			{
+				memoryUsageGauge.With(prometheus.Labels{"server_name": selected.Name, "server_url": selected.URL}).Set(float64(memUsage))
+			}
+		}
 	}
-
-	// Prikaz potrošenosti memorije za server u metrikama/Prometheusu
-	memoryUsageGauge.With(prometheus.Labels{"server_name": selected.Name, "server_url": selected.URL}).Set(float64(memUsage))
 
 	start := time.Now()
 
@@ -462,9 +478,12 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Lista servera u load balanceru
-	lb.AddServer("Server 1", "http://192.168.1.8:8001", 1, 100)
-	lb.AddServer("Server 2", "http://192.168.1.8:8002", 2, 100)
-	lb.AddServer("Server 3", "http://192.168.1.8:8003", 3, 100)
+	lb.AddServer("Server 1", "http://192.168.1.8:8001", 2, 100)
+	lb.AddServer("Server 2", "http://192.168.1.8:8002", 4, 100)
+	lb.AddServer("Server 3", "http://192.168.1.8:8003", 6, 100)
+	lb.AddServer("Mock server 1", "http://192.168.1.8:8004", 1, 100)
+	lb.AddServer("Mock server 2", "http://192.168.1.8:8005", 3, 100)
+	lb.AddServer("Mock server 3", "http://192.168.1.8:8006", 5, 100)
 
 	prometheus.MustRegister(requestsByRoute)
 	prometheus.MustRegister(memoryUsageGauge)
@@ -507,6 +526,7 @@ func main() {
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Stvaranje spana za dolazni zahtjev
+
 		incomingSpan := tracer.StartSpan("incoming-request")
 		defer incomingSpan.Finish()
 
@@ -540,6 +560,11 @@ func main() {
 	// Memorija za zaseban server
 	mux.HandleFunc("/memory", func(w http.ResponseWriter, r *http.Request) {
 		server := lb.RandomServer()
+
+		for server != nil && strings.Contains(strings.ToLower(server.Name), "mock") {
+			// Ako je server mock server generira se novi random server
+			server = lb.RandomServer()
+		}
 		if server != nil {
 			proxyURL, err := url.Parse(server.URL)
 			if err != nil {
