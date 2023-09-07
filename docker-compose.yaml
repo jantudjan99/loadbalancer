@@ -3,7 +3,7 @@ services:
   load-balancer:
     build: .
     ports:
-      - 8000:8000
+      - 192.168.1.6:8000:8000
     networks:
       - lb-net
     depends_on:
@@ -14,35 +14,53 @@ services:
       - mock-server2
       - mock-server3
     environment:
-      - ZIPKIN_SERVER_URL=http://192.168.1.8:9411/api/v2/spans
+      - ZIPKIN_SERVER_URL=http://192.168.1.6:9411/api/v2/spans
 
   server1:
     build: ./server1
     ports:
-      - 8001:8001
+      - 192.168.1.6:8001:8001
     networks:
       - lb-net
+    deploy:
+      replicas: 1 
+      resources:
+        limits:
+          cpus: '2'
+          memory: '1GB' 
 
   server2:
     build: ./server2
     ports:
-      - 8002:8002
+      - 192.168.1.6:8002:8002
     networks:
       - lb-net
+    deploy:
+      replicas: 1 
+      resources:
+        limits:
+          cpus: '2'
+          memory: '1GB' 
 
   server3:
     build: ./server3
     ports:
-      - 8003:8003
+      - 192.168.1.6:8003:8003
     networks:
       - lb-net
+    deploy:
+      replicas: 1 
+      resources:
+        limits:
+          cpus: '2'
+          memory: '1GB' 
 
   mock-server1:
     image: rodolpheche/wiremock
     volumes:
       - ./mappings1:/home/wiremock/mappings
     ports:
-      - 8004:8080
+      - 192.168.1.6:8004:8080
     networks:
       - lb-net
 
@@ -51,7 +69,7 @@ services:
     volumes:
       - ./mappings2:/home/wiremock/mappings
     ports:
-      - 8005:8080
+      - 192.168.1.6:8005:8080
     networks:
       - lb-net
 
@@ -60,14 +78,14 @@ services:
     volumes:
       - ./mappings3:/home/wiremock/mappings
     ports:
-      - 8006:8080
+      - 192.168.1.6:8006:8080
     networks:
       - lb-net
 
   prometheus:
     image: prom/prometheus
     ports:
-      - 9090:9090
+      - 192.168.1.6:9090:9090
     networks:
       - lb-net
     volumes:
@@ -78,17 +96,18 @@ services:
   zipkin:
     image: openzipkin/zipkin
     ports:
-      - 9411:9411
+      - 192.168.1.6:8899:9411:9411
     networks:
       - lb-net
+
   wiremock:
     image: rodolpheche/wiremock
     ports:
-      - 192.168.1.8:8899:8080
+      - 192.168.1.6:8899:8080
     networks:
       - lb-net
     volumes:
-      - ./mappings:/home/wiremock/mappings - lb-net
+      - ./mappings:/home/wiremock/mappings
 
 networks:
   lb-net:

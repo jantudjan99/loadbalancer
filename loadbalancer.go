@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,10 +20,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/openzipkin/zipkin-go"
+	zipkinhttp "github.com/openzipkin/zipkin-go/middleware/http"
 	"github.com/openzipkin/zipkin-go/model"
 	reporterhttp "github.com/openzipkin/zipkin-go/reporter/http"
-
-	zipkinhttp "github.com/openzipkin/zipkin-go/middleware/http"
 ) //
 
 // Server predstavlja informacije o pojedinom serveru
@@ -154,6 +155,29 @@ var (
 		},
 		[]string{"server_name", "server_url"},
 	)
+	memoryAlloc = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "memory_alloc_bytes",
+			Help: "Current memory allocation in bytes for each server instance",
+		},
+		[]string{"server_name", "server_url"},
+	)
+	processResidentMemory = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "process_resident_memory_bytes_server",
+			Help: "Resident memory size of the process in bytes for each server instance",
+		},
+		[]string{"server_name", "server_url"},
+	)
+)
+var (
+	processCPUTime = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "process_cpu_seconds_total_each",
+			Help: "Total CPU time consumed by the process in seconds.",
+		},
+		[]string{"server_name", "server_url"},
+	)
 )
 
 var (
@@ -234,11 +258,47 @@ func getMemoryUsageFromServer(serverURL string) (uint64, error) {
 			if err != nil {
 				return 0, err
 			}
+
 			return memAlloc, nil
 		}
 	}
 
 	return 0, fmt.Errorf("unexpected response format from server")
+}
+
+func getResidentMemoryFromServer(serverURL string) (int64, error) {
+	resp, err := http.Get(serverURL + "/resident-memory")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	// Pretvorite niz u string
+	memoryString := string(body)
+
+	// Koristite regularni izraz za izdvajanje broja iz teksta
+	re := regexp.MustCompile(`\d+`)
+	matches := re.FindStringSubmatch(memoryString)
+	if len(matches) == 0 {
+		return 0, fmt.Errorf("no numeric value found in response")
+	}
+
+	residentMemory, err := strconv.ParseInt(matches[0], 10, 64)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return residentMemory, nil
 }
 
 //Vremenska provjera konekcija
@@ -249,7 +309,7 @@ func (lb *LoadBalancer) UpdateCurrentConnections(server *Server, count float64) 
 	}).Set(count)
 }
 
-const endpointURL = "http://192.168.1.8:9411/api/v2/spans"
+const endpointURL = "http://192.168.1.6:9411/api/v2/spans"
 
 func newTracer(endpointURL string) (*zipkin.Tracer, error) {
 	reporter := reporterhttp.NewReporter(endpointURL)
@@ -291,6 +351,46 @@ func (lb *LoadBalancer) sendRequestToServer(url string, r *http.Request, tracer 
 	}
 
 	return resp, nil
+}
+
+func getMemoryAllocation() uint64 {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	return memStats.Alloc
+}
+
+func getCPUTimeFromServer(serverURL string) (float64, error) {
+	resp, err := http.Get(serverURL + "/cpu-time")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	// Pretvorite niz u string
+	cpuTimeString := string(body)
+
+	// Koristite regularni izraz za izdvajanje broja iz teksta
+	re := regexp.MustCompile(`\d+\.\d+`)
+	matches := re.FindStringSubmatch(cpuTimeString)
+	if len(matches) == 0 {
+		return 0, fmt.Errorf("no numeric value found in response")
+	}
+
+	cpuTime, err := strconv.ParseFloat(matches[0], 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return cpuTime, nil
 }
 
 // handleRequest rukuje dolaznim zahtjevima
@@ -365,6 +465,27 @@ func (lb *LoadBalancer) handleRequest(w http.ResponseWriter, r *http.Request, tr
 	}
 	// Dohvat memorijske potrošnje iz servera
 	memUsage, err := getMemoryUsageFromServer(selected.URL)
+
+	residentMemory, err := getResidentMemoryFromServer(selected.URL)
+
+	memAlloc := getMemoryAllocation() // Dohvat informacija o memoriji alokacije
+
+	cpuTime, err := getCPUTimeFromServer(selected.URL)
+
+	if err != nil && !strings.Contains(strings.ToLower(selected.Name), "mock") {
+		if err.Error() != "mock server" {
+			log.Printf("Failed to get resident memory from server: %s\n", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if !strings.Contains(strings.ToLower(selected.Name), "mock") {
+			processResidentMemory.With(prometheus.Labels{"server_name": selected.Name, "server_url": selected.URL}).Set(float64(residentMemory))
+			memoryAlloc.With(prometheus.Labels{"server_name": selected.Name, "server_url": selected.URL}).Set(float64(memAlloc))
+			processCPUTime.WithLabelValues(selected.Name, selected.URL).Set(cpuTime)
+		}
+	}
+
 	if err != nil && !strings.Contains(strings.ToLower(selected.Name), "mock") {
 		if err.Error() != "mock server" {
 			log.Printf("Failed to get memory usage from server: %s\n", err)
@@ -376,9 +497,12 @@ func (lb *LoadBalancer) handleRequest(w http.ResponseWriter, r *http.Request, tr
 		if !strings.Contains(strings.ToLower(selected.Name), "mock") {
 			{
 				memoryUsageGauge.With(prometheus.Labels{"server_name": selected.Name, "server_url": selected.URL}).Set(float64(memUsage))
+
 			}
 		}
 	}
+
+	// Postavljanje vrijednosti metrike memory_alloc_bytes s oznakama
 
 	start := time.Now()
 
@@ -475,17 +599,20 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Lista servera u load balanceru
-	lb.AddServer("Server 1", "http://192.168.1.8:8001", 2, 100)
-	lb.AddServer("Server 2", "http://192.168.1.8:8002", 4, 100)
-	lb.AddServer("Server 3", "http://192.168.1.8:8003", 6, 100)
-	lb.AddServer("Mock server 1", "http://192.168.1.8:8004", 1, 100)
-	lb.AddServer("Mock server 2", "http://192.168.1.8:8005", 3, 100)
-	lb.AddServer("Mock server 3", "http://192.168.1.8:8006", 5, 100)
+	lb.AddServer("Server 1", "http://192.168.1.6:8001", 2, 100)
+	lb.AddServer("Server 2", "http://192.168.1.6:8002", 4, 100)
+	lb.AddServer("Server 3", "http://192.168.1.6:8003", 6, 100)
+	lb.AddServer("Mock server 1", "http://192.168.1.6:8004", 1, 100)
+	lb.AddServer("Mock server 2", "http://192.168.1.6:8005", 3, 100)
+	lb.AddServer("Mock server 3", "http://192.168.1.6:8006", 5, 100)
 
 	prometheus.MustRegister(requestsByRoute)
 	prometheus.MustRegister(memoryUsageGauge)
 	prometheus.MustRegister(requestDuration)
 	prometheus.MustRegister(currentConnections)
+	prometheus.MustRegister(memoryAlloc)
+	prometheus.MustRegister(processResidentMemory)
+	prometheus.MustRegister(processCPUTime)
 
 	tracer, err := newTracer(endpointURL)
 	if err != nil {
