@@ -6,6 +6,8 @@ Autor: Jan Tuđan
 
 Mentor: doc. dr. sc. Nikola Tanković (ntankovic.unipu.hr)
 
+[Sveučilište Jurja Dobrile u Puli](https://www.unipu.hr/)
+
 [Fakultet informatike u Puli](https://fipu.unipu.hr/)
 
 
